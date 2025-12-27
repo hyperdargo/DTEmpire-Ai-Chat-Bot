@@ -1,4 +1,5 @@
-import { Client, GatewayIntentBits, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
+import { Client, GatewayIntentBits, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ActivityType } from "discord.js";
+import { createRequire } from "module";
 import axios from "axios";
 import dotenv from "dotenv";
 import { BotConfig, AllowedModels, normalizeModelName } from "./botConfig.js";
@@ -22,18 +23,53 @@ const baseIntents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages];
 if (allowMessageContent) baseIntents.push(GatewayIntentBits.MessageContent);
 const client = new Client({ intents: baseIntents });
 
+// Presence configuration
+const require = createRequire(import.meta.url);
+let pkgVersion = null;
+try { pkgVersion = require("../package.json").version; } catch {}
+const botVersion = process.env.BOT_VERSION || (pkgVersion ? `v${pkgVersion}` : "");
+const defaultStatusText = botVersion ? `${prefix}help | ${botVersion}` : `${prefix}help`;
+const statusText = process.env.BOT_STATUS_TEXT || defaultStatusText;
+const statusTypeRaw = String(process.env.BOT_STATUS_TYPE || "PLAYING").toUpperCase();
+const presenceState = String(process.env.BOT_STATUS_STATE || "online").toLowerCase(); // online|idle|dnd|invisible
+
+function mapActivityType(t) {
+  switch (t) {
+    case "PLAYING": return ActivityType.Playing;
+    case "LISTENING": return ActivityType.Listening;
+    case "WATCHING": return ActivityType.Watching;
+    case "COMPETING": return ActivityType.Competing;
+    case "STREAMING": return ActivityType.Streaming; // requires URL typically, but keep for completeness
+    default: return ActivityType.Playing;
+  }
+}
+
+function applyPresence() {
+  try {
+    client.user.setPresence({
+      activities: [{ name: statusText, type: mapActivityType(statusTypeRaw) }],
+      status: presenceState
+    });
+    console.log(`[dt-empire] Bot presence set: ${statusText} (${statusTypeRaw.toLowerCase()})`);
+  } catch (e) {
+    console.warn("[dt-empire] Failed to set presence:", e?.message || e);
+  }
+}
+
 // Ready events (forward-compatible with v15 rename)
 client.once("ready", () => {
   console.log(`[dt-empire] Discord bot logged in as ${client.user.tag}`);
   if (!allowMessageContent) {
     console.warn("[dt-empire] Message Content intent disabled. Prefix commands (>help, >ai) and AI-channel auto replies are unavailable. Use slash commands /help and /ai.");
   }
+  applyPresence();
 });
 client.once("clientReady", (cli) => {
   console.log(`[dt-empire] Discord bot logged in as ${cli.user.tag}`);
   if (!allowMessageContent) {
     console.warn("[dt-empire] Message Content intent disabled. Prefix commands (>help, >ai) and AI-channel auto replies are unavailable. Use slash commands /help and /ai.");
   }
+  applyPresence();
 });
 
 client.on("error", (err) => {
@@ -55,6 +91,14 @@ client.on("clientReady", () => {
     {
       name: "help",
       description: "Show bot help"
+    },
+    {
+      name: "ping",
+      description: "Ping API and show uptime",
+      options: [
+        { name: "ai", description: "Run AI check", type: 5, required: false },
+        { name: "model", description: "Model for AI check", type: 3, required: false, choices: AllowedModels.map(m => ({ name: m, value: m })) }
+      ]
     },
     {
       name: "ai",
@@ -189,6 +233,66 @@ function displayModel(id) {
   return map[key] || id;
 }
 
+// API ping helper
+async function callApiPing(params = {}) {
+  const query = {};
+  if (params.msg) query.msg = params.msg;
+  if (params.ts) query.ts = params.ts;
+  if (typeof params.ai !== "undefined") query.ai = params.ai ? "1" : "0";
+  if (params.model) query.model = params.model;
+  const { data } = await axios.get(`${apiUrl}/api/ping`, { params: query, timeout: 10000 });
+  return data;
+}
+
+function formatUptime(ms) {
+  const s = Math.floor(ms / 1000);
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return `${d}d ${h}h ${m}m ${sec}s`;
+}
+
+function formatBytesMB(bytes) {
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function pingEmbed(data, client, metrics = {}) {
+  const apiText = data.external
+    ? (data.external.ok
+        ? `Pollinations ok • ${data.external.elapsedMs}ms`
+        : `Pollinations fail: ${data.external.error}`)
+    : `Pollinations: not checked`;
+  const mem = process.memoryUsage();
+  const memText = formatBytesMB(mem.heapUsed);
+  const guilds = client?.guilds?.cache?.size ?? 0;
+  const users = client?.guilds?.cache?.reduce((acc, g) => acc + (g.memberCount || 0), 0) ?? 0;
+  const commandCount = client?.application?.commands?.cache?.size ?? 4;
+  const botUptimeMs = Math.round(process.uptime() * 1000);
+  const startedAt = new Date(Date.now() - botUptimeMs).toLocaleString();
+  const displayVersion = (process.env.BOT_VERSION || "").replace(/^v/i, "") || (pkgVersion || "");
+  const pingMs = (typeof data.echoLatencyMs === "number" ? data.echoLatencyMs : null) ?? (typeof metrics.clientLatencyMs === "number" ? metrics.clientLatencyMs : null);
+
+  return new EmbedBuilder()
+    .setTitle("🚀 DTEmpire Status & Uptime")
+    .setColor(0x4cc2ff)
+    .addFields(
+      { name: "Version", value: displayVersion || "unknown", inline: true },
+      { name: "Creator", value: "DargoTamber", inline: true },
+      { name: "Uptime", value: formatUptime(botUptimeMs), inline: true },
+      { name: "Ping", value: pingMs != null ? `${pingMs}ms` : "n/a", inline: true },
+      { name: "API Latency", value: apiText.replace("Pollinations ", ""), inline: true },
+      { name: "Memory Usage", value: memText, inline: true },
+      { name: "Servers", value: String(guilds), inline: true },
+      { name: "Users", value: String(users), inline: true },
+      { name: "Commands", value: String(commandCount), inline: true },
+      { name: "Server", value: `${data.serverUrl || "https://ai.ankitgupta.com.np"}/`, inline: false },
+      { name: "Started At", value: startedAt, inline: false },
+      { name: "API", value: apiText, inline: false },
+    )
+    // No footer to avoid "AI: not checked"
+}
+
 // DiscordSRV patterns for extracting player messages
 const DISCORDSRV_PATTERNS = [
   /^\[Member\]\s+(.+?)\s+»\s+(.+)$/i,
@@ -303,6 +407,21 @@ client.on("messageCreate", async (message) => {
 
     if (cmd.toLowerCase() === "help") {
       await message.reply({ embeds: [helpEmbed()], components: [helpButtons()] });
+      return;
+    }
+
+    if (cmd.toLowerCase() === "ping") {
+      try {
+        const start = Date.now();
+        const parts = argText.split(/\s+/).filter(Boolean);
+        const aiFlag = parts[0]?.toLowerCase() === "ai";
+        const modelChoice = aiFlag && parts[1] ? normalizeModelName(parts[1]) : null;
+        const data = await callApiPing({ msg: "discord", ts: Date.now(), ai: aiFlag, model: modelChoice });
+        const clientLatencyMs = Date.now() - start;
+        await message.reply({ embeds: [pingEmbed(data, client, { clientLatencyMs })] });
+      } catch (e) {
+        await message.reply("Ping failed.");
+      }
       return;
     }
 
@@ -425,6 +544,22 @@ client.on("interactionCreate", async (interaction) => {
 
     if (name === "help") {
       await interaction.reply({ embeds: [helpEmbed()], components: [helpButtons()], ephemeral: true });
+      return;
+    }
+
+    if (name === "ping") {
+      const aiFlag = interaction.options.getBoolean("ai") ?? false;
+      const modelChoiceRaw = interaction.options.getString("model") || null;
+      const modelChoice = modelChoiceRaw ? normalizeModelName(modelChoiceRaw) : null;
+      await interaction.deferReply();
+      try {
+        const start = Date.now();
+        const data = await callApiPing({ msg: "discord", ts: Date.now(), ai: aiFlag, model: modelChoice });
+        const clientLatencyMs = Date.now() - start;
+        await interaction.editReply({ embeds: [pingEmbed(data, client, { clientLatencyMs })] });
+      } catch (e) {
+        await interaction.editReply("Ping failed.");
+      }
       return;
     }
 
