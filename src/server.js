@@ -17,6 +17,9 @@ function normalizeSelectedModel(m) {
   const key = String(m).trim().toLowerCase();
   return MODEL_ALIAS[key] || key; // if already an id, pass through
 }
+function isDTEmpireModel(modelId) {
+  return normalizeSelectedModel(modelId) === "nova-micro";
+}
 import { callQuickModel, callTextModel } from "./aiClient.js";
 import { MemoryStore } from "./memoryStore.js";
 
@@ -159,23 +162,24 @@ app.get("/api/ai-identity", async (req, res) => {
   const prompt = String(req.query.prompt || "").trim();
   const userId = String(req.query.userId || req.ip);
   const selectedModel = String(req.query.model || "").trim() || null;
+  const effectiveModel = normalizeSelectedModel(selectedModel || process.env.FORCE_MODEL || process.env.PREFERRED_MODEL || process.env.DEFAULT_MODEL || null);
 
   try {
-    if (isAskName(prompt)) {
+    if (isAskName(prompt) && isDTEmpireModel(effectiveModel)) {
       const reply = "I'm DTEmpire—your AI chat bot built to keep things fast and friendly.";
       MemoryStore.recordMessage(userId, prompt, reply, { topic: "name" });
-      return res.json({ status: "success", text: reply, source: "identity", model: null });
+      return res.json({ status: "success", text: reply, source: "identity", model: "nova-micro" });
     }
-    if (isAskMaker(prompt)) {
+    if (isAskMaker(prompt) && isDTEmpireModel(effectiveModel)) {
       const reply = "I was crafted by DargoTamber.";
       MemoryStore.recordMessage(userId, prompt, reply, { topic: "maker" });
-      return res.json({ status: "success", text: reply, source: "identity", model: null });
+      return res.json({ status: "success", text: reply, source: "identity", model: "nova-micro" });
     }
 
-    if (isAskBornDate(prompt)) {
+    if (isAskBornDate(prompt) && isDTEmpireModel(effectiveModel)) {
       const reply = "I was made on Dec 27, 2025 by DargoTambe from DTEmpire.";
       MemoryStore.recordMessage(userId, prompt, reply, { topic: "born" });
-      return res.json({ status: "success", text: reply, source: "identity", model: null });
+      return res.json({ status: "success", text: reply, source: "identity", model: "nova-micro" });
     }
 
     if (isAskTodayDate(prompt)) {
@@ -193,14 +197,7 @@ app.get("/api/ai-identity", async (req, res) => {
       return res.json({ status: "success", text: reply, source: "memory", model: null });
     }
 
-    // On Dec 27, 2025, everything else should pull from AI
-    if (isDec272025()) {
-      const ai = await chooseModelAndCall(prompt, selectedModel);
-      MemoryStore.recordMessage(userId, prompt, ai.text, { topic: "general", model: ai.model, elapsedMs: ai.elapsedMs });
-      return res.json({ status: "success", text: ai.text, model: ai.model, model_name: ai.model_name, elapsedMs: ai.elapsedMs });
-    }
-
-    // Default: also use AI for other prompts
+    // Non-DTEmpire models (or any other prompt) use AI
     const ai = await chooseModelAndCall(prompt, selectedModel);
     MemoryStore.recordMessage(userId, prompt, ai.text, { topic: "general", model: ai.model, elapsedMs: ai.elapsedMs });
     res.json({ status: "success", text: ai.text, model: ai.model, model_name: ai.model_name, elapsedMs: ai.elapsedMs });
@@ -214,26 +211,27 @@ app.all("/api/ai-smart", async (req, res) => {
   const prompt = String((req.method === "GET" ? req.query.prompt : req.body?.prompt) || "").trim();
   const userId = String((req.method === "GET" ? req.query.userId : req.body?.userId) || req.ip);
   const selectedModel = String((req.method === "GET" ? req.query.model : req.body?.model) || "").trim() || null;
+  const effectiveModel = normalizeSelectedModel(selectedModel || process.env.FORCE_MODEL || process.env.PREFERRED_MODEL || process.env.DEFAULT_MODEL || null);
 
   if (!prompt) return res.status(400).json({ status: "error", message: "Missing prompt" });
 
   try {
     // Identity shortcuts inside smart too
-    if (isAskName(prompt)) {
+    if (isAskName(prompt) && isDTEmpireModel(effectiveModel)) {
       const reply = "I'm DTEmpire—your AI chat bot built to keep things fast and friendly.";
       MemoryStore.recordMessage(userId, prompt, reply, { topic: "name" });
-      return res.json({ status: "success", text: reply, source: "identity", model: null });
+      return res.json({ status: "success", text: reply, source: "identity", model: "nova-micro" });
     }
-    if (isAskMaker(prompt)) {
+    if (isAskMaker(prompt) && isDTEmpireModel(effectiveModel)) {
       const reply = "I was crafted by DargoTamber.";
       MemoryStore.recordMessage(userId, prompt, reply, { topic: "maker" });
-      return res.json({ status: "success", text: reply, source: "identity", model: null });
+      return res.json({ status: "success", text: reply, source: "identity", model: "nova-micro" });
     }
 
-    if (isAskBornDate(prompt)) {
+    if (isAskBornDate(prompt) && isDTEmpireModel(effectiveModel)) {
       const reply = "I was made on Dec 27, 2025 by DargoTambe from DTEmpire.";
       MemoryStore.recordMessage(userId, prompt, reply, { topic: "born" });
-      return res.json({ status: "success", text: reply, source: "identity", model: null });
+      return res.json({ status: "success", text: reply, source: "identity", model: "nova-micro" });
     }
 
     if (isAskTodayDate(prompt)) {
@@ -266,6 +264,50 @@ app.get("/api/user", (req, res) => {
   if (!userId) return res.status(400).json({ status: "error", message: "Missing userId" });
   const user = MemoryStore.getUser(userId);
   res.json({ status: "success", user });
+});
+
+// Lightweight ping for Discord bot uptime checks
+app.get("/api/ping", async (req, res) => {
+  const msg = String(req.query.msg || "").trim();
+  const clientTs = Number(req.query.ts || 0);
+  const checkAI = String(req.query.ai || "0").toLowerCase();
+  const doAI = checkAI === "1" || checkAI === "true";
+  const selectedModel = String(req.query.model || "").trim() || null;
+
+  const now = Date.now();
+  const echoLatencyMs = clientTs && Number.isFinite(clientTs) ? Math.max(0, now - clientTs) : null;
+  const base = {
+    status: "pong",
+    server: "listening",
+    host: HOST,
+    port: PORT,
+    serverUrl: process.env.API_URL || null,
+    uptimeMs: Math.round(process.uptime() * 1000),
+    date: new Date(now).toISOString(),
+    echo: msg || null,
+    echoLatencyMs
+  };
+
+  if (!doAI) return res.json(base);
+
+  try {
+    const ai = await chooseModelAndCall("ping", selectedModel);
+    return res.json({
+      ...base,
+      ai: {
+        ok: true,
+        model: ai.model,
+        model_name: ai.model_name,
+        elapsedMs: ai.elapsedMs,
+        text: ai.text
+      }
+    });
+  } catch (e) {
+    return res.json({
+      ...base,
+      ai: { ok: false, error: e?.message || "ai-check-failed" }
+    });
+  }
 });
 
 const PORT = Number(process.env.PORT || process.env.SERVER_PORT || process.env.PTERO_PORT || 3000);
