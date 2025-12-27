@@ -2,7 +2,14 @@
 
 # DTEmpire AI Chat Bot
 
+[![Discord.js](https://img.shields.io/badge/discord.js-v14-blue?logo=discord)](https://discord.js.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-18+-green?logo=node.js)](https://nodejs.org/)
+[![License](https://img.shields.io/badge/license-MIT-brightgreen)](LICENSE)
+[![GitHub](https://img.shields.io/badge/GitHub-hyperdargo/DTEmpire--Ai--Chat--Bot-blue?logo=github)](https://github.com/hyperdargo/DTEmpire-Ai-Chat-Bot)
+
 A fast, feature-rich Discord bot with AI capabilities, Minecraft integration, and per-user memory. Built with Node.js and Express.
+
+**[➕ Add Bot to Discord](https://discord.com/oauth2/authorize?client_id=1454372361485684870)**
 
 ## Features
 
@@ -326,4 +333,19 @@ This project is licensed under the MIT License.
 - Built with [discord.js](https://discord.js.org/)
 - AI powered by Pollinations.ai
 - DiscordSRV integration for Minecraft
+
+## 👤 Author
+
+**DargoTamber**
+
+- GitHub: [https://github.com/hyperdargo](https://github.com/hyperdargo)
+- Discord: DargoTamber
+- Website: [https://ankitgupta.com.np](https://ankitgupta.com.np)
+
+---
+
+<p align="center">
+  DTEmpire Ai Chat Bot • Built with ❤️ for the Discord community
+</p>
+
 
