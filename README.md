@@ -1,4 +1,4 @@
-![DTEmpire Banner](https://i.imgur.com/ogq7SKi.png)
+![DTEmpire Banner](https://i.imgur.com/xQNNFoX.png)
 
 # DTEmpire AI Chat Bot
 
@@ -347,5 +347,6 @@ This project is licensed under the MIT License.
 <p align="center">
   DTEmpire Ai Chat Bot • Built with ❤️ for the Discord community
 </p>
+
 
 
